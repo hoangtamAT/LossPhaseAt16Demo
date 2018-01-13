@@ -2,7 +2,7 @@
 This program was created by the
 CodeWizardAVR V3.12 Advanced
 Automatic Program Generator
-© Copyright 1998-2014 Pavel Haiduc, HP InfoTech s.r.l.
+Â© Copyright 1998-2014 Pavel Haiduc, HP InfoTech s.r.l.
 http://www.hpinfotech.com
 
 Project : 
@@ -15,7 +15,7 @@ Comments:
 
 Chip type               : ATmega16
 Program type            : Application
-AVR Core Clock frequency: 8.000000 MHz
+AVR Core Clock frequency: 16.000000 MHz
 Memory model            : Small
 External RAM size       : 0
 Data Stack size         : 256
@@ -38,7 +38,6 @@ Data Stack size         : 256
 #define DOWN    PINB.3
 #define LOSS_PHASE    690
 
-char buzz[4];
 unsigned int adcPin;
 bit Charge_Flag = 0;
 unsigned char hour,minn,sec,day,date,month,year,mode,No_date,index=0;
@@ -79,7 +78,9 @@ void setting(void);
 void button(void);
 void alarmOnDisplay(unsigned char x, unsigned char y);
 void alarmOffDisplay(unsigned char x, unsigned char y);
-void alarm(void);
+void alarmSetting(void);
+void alarmAction();
+void displayADC();
 
 void main(void)
 {
@@ -110,14 +111,7 @@ DDRD=(0<<DDD7) | (0<<DDD6) | (0<<DDD5) | (1<<DDD4) | (0<<DDD3) | (1<<DDD2) | (1<
 // State: Bit7=T Bit6=T Bit5=0 Bit4=0 Bit3=0 Bit2=0 Bit1=0 Bit0=T 
 PORTD=(0<<PORTD7) | (0<<PORTD6) | (0<<PORTD5) | (0<<PORTD4) | (0<<PORTD3) | (1<<PORTD2) | (0<<PORTD1) | (0<<PORTD0);
 
-// Timer/Counter 0 initialization
-// Clock source: System Clock
-// Clock value: Timer 0 Stopped
-// Mode: Normal top=0xFF
-// OC0 output: Disconnected
-TCCR0=(0<<WGM00) | (0<<COM01) | (0<<COM00) | (0<<WGM01) | (0<<CS02) | (0<<CS01) | (0<<CS00);
-TCNT0=0x00;
-OCR0=0x00;
+
 
 // Timer/Counter 1 initialization
 // Clock source: System Clock
@@ -219,6 +213,13 @@ rtc_init(0,0,0);
 // D7 - PORTC Bit 7
 // Characters/line: 16
 lcd_init(16);
+if(hour_on==255)
+{
+   hour_on=min_on=hour_off=min_off=alarm_flag=0;
+   rtc_set_time(12,0,0);
+   rtc_set_date(6,13,1,18); 
+}
+
 lcd_gotoxy(4,0);
 lcd_puts("Welcome");
 lcd_gotoxy(3,1);
@@ -226,11 +227,13 @@ lcd_puts("CTA Group");
 delay_ms(800);
 lcd_clear();
 readPin();
-
+LOAD=0;
 // Global enable interrupts
 #asm("sei")
 while (1)
-    {     
+    {
+     //displayADC(); 
+ 
       button();   
      /*************************************************/ 
      if(index==0)
@@ -239,7 +242,7 @@ while (1)
               getTime();  
               timeDisplay(2,0);
               dateDisplay(0,1); 
-              
+              alarmAction();
               display_PIN(12,0); 
               check_phase();   
               if(minn%3==0 && sec<10) readPin(); 
@@ -251,7 +254,7 @@ while (1)
                 lcd_putchar(255);
               }else{
                 lcd_gotoxy(0,0);
-                lcd_putchar(0);
+                lcd_putchar(0xa0);
               }
               
           }else{ 
@@ -284,7 +287,7 @@ while (1)
           }
           
      }else{
-        alarm();
+        alarmSetting();
         if(index==1)
         {
            lcd_gotoxy(2,0);
@@ -323,26 +326,42 @@ while (1)
            }
         }
      }
-      /****************************************************/
-       
+     /**********************************************************/
     }
 }
 
 /**************************************************************************/
+void displayADC()
+{
+   char adcBuff[4];
+   
+   sprintf(adcBuff,"%i",read_phase(0));
+   lcd_gotoxy(0,0);
+   lcd_puts(adcBuff); 
+   
+   sprintf(adcBuff,"%i",read_phase(1));
+   lcd_gotoxy(7,0);
+   lcd_puts(adcBuff);
+   
+   sprintf(adcBuff,"%i",read_phase(2));
+   lcd_gotoxy(0,1);
+   lcd_puts(adcBuff);
+   
+}
 void button(void)
 {
-  if(index==0){ 
+  if(mode==0){ 
     if(MODE==0)
     {
         lcd_clear();
-        mode++;
-        if(mode>5) mode=0;
+        index++;
+        if(index>5) index=0;
         while(!MODE);
     }
     if(UP==0) 
     { 
         lcd_clear();  
-        index=1;
+        mode=1;
         while(!UP);
     } 
     if(DOWN==0)
@@ -363,8 +382,8 @@ void button(void)
     if(MODE==0)
     {
         lcd_clear();
-        index++;
-        if(index>5) index=0;
+        mode++;
+        if(mode>5) mode=0;
         while(!MODE); 
     }
   } 
@@ -406,8 +425,8 @@ void check_phase(void)
   else{  
     RELAY=1;
     lcd_gotoxy(14,1);
-    lcd_putchar(0);  
-    lcd_putchar(0);
+    lcd_putchar(0xa0);  
+    lcd_putchar(0xa0);
   }
 }
 
@@ -419,8 +438,8 @@ void display_PIN(unsigned char x, unsigned char y)
         ADCmax: adc khi pin o muc maximum theo datasheet
         ADCmin: adc khi pin o muc pin can theo datasheet
     */
-    float percent;  
-    char pinBuffer[2];
+    int percent;  
+    char pinBuffer[3];
     //percent=100*((878-767)/(920-767)); 
     if(adcPin<767) percent=0;
     else{ 
@@ -604,7 +623,7 @@ void setting(void)
             {
             minn++;
             };
-        rtc_set_time(hour,minn,sec); 
+        rtc_set_time(hour,minn,0); 
         while(!UP); // doi nha phim 
         }
    //==============
@@ -618,7 +637,7 @@ void setting(void)
             {
             minn--;
             }; 
-        rtc_set_time(hour,minn,sec);
+        rtc_set_time(hour,minn,0);
         while(!DOWN);
         }
  }
@@ -635,7 +654,7 @@ void setting(void)
             {
             hour++;
             };
-        rtc_set_time(hour,minn,sec);
+        rtc_set_time(hour,minn,0);
         while(!UP); // doi nha phim
         }
    //==============
@@ -649,7 +668,7 @@ void setting(void)
             {
             hour--;
             }; 
-        rtc_set_time(hour,minn,sec);
+        rtc_set_time(hour,minn,0);
         while(!DOWN);
         }
     }
@@ -752,7 +771,7 @@ void setting(void)
     }
 }
 
-void alarm(void)
+void alarmSetting(void)
 {
    switch(index)
    {
@@ -869,11 +888,26 @@ void alarm(void)
         }   
         else if(DOWN==0)
         {
-            alarm_flag--;
-            if(alarm_flag<0) alarm_flag=1;
+            if(alarm_flag==0) alarm_flag=1;
+            else alarm_flag--;
             while(!DOWN); // doi nha phim 
         }
         break;
          
    }
+}
+
+void alarmAction()
+{
+    if(alarm_flag==1)
+    {
+        if(hour==hour_on && minn==min_on && sec<10)
+        {
+            LOAD=1;
+        }  
+        if(hour==hour_off && minn==min_off && sec<10)
+        {
+            LOAD=0;
+        }
+    }
 }
